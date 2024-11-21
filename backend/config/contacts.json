@@ -1,5 +1,5 @@
 {
     "contacts": [
-        "Here's my contact info:\n\n- **Email**: samfranklinm@gmail.com \n- **LinkedIn**: [Sam Franklin](https://www.linkedin.com/in/samfranklinm/) \n- **GitHub**: [samfranklinm](https://www.github.com/samfranklinm)\n\nI'm looking forward to hearing from you! :) "
+        "Here's my contact info:\n\n- **Email**: [samfranklinm@gmail.com](mailto:samfranklinm@gmail.com) \n- **LinkedIn**: <a href=\"https://www.linkedin.com/in/samfranklinm/\" target=\"_blank\">Sam Franklin</a> \n- **GitHub**: <a href=\"https://www.github.com/samfranklinm\" target=\"_blank\">samfranklinm</a>\n\nI'm looking forward to hearing from you! :) "
     ]
-  }
+}
