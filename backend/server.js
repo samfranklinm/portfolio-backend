@@ -13,18 +13,27 @@ dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 
-const allowedOrigins = ['http://localhost:3000', 'http://localhost:5004','http://localhost:5002','http://localhost:5003', 'https://samfranklin.dev'];
+// Update allowed origins to include your Render URL
+const allowedOrigins = [
+  'http://localhost:3000', 
+  'http://localhost:5004',
+  'http://localhost:5002',
+  'http://localhost:5003', 
+  'https://samfranklin.dev',
+  process.env.RENDER_EXTERNAL_URL
+].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ['POST'],
-  allowedHeaders: ['Content-Type']
+  methods: ['POST', 'OPTIONS'], // Add OPTIONS for preflight requests
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(helmet());
@@ -48,8 +57,15 @@ const loadResume = async () => {
     console.log('Resume loaded successfully.');
   } catch (error) {
     console.error('Error loading resume:', error);
+    // Don't exit the process, but set a default value
+    resumeText = 'Resume text temporarily unavailable.';
   }
 };
+
+// Add health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 
 loadResume();
 
@@ -73,28 +89,28 @@ app.post('/api/chat',
   chatLimiter,
   body('question').isString().trim().escape(),
   async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const question = req.body.question.trim().toLowerCase();
-    const isGreeting = ['hi', 'hello', 'hola', 'howdy', 'hey'].some(greet => question.startsWith(greet));
-
-    if (isGreeting) {
-      const greetingMessage = greetings[Math.floor(Math.random() * greetings.length)];
-      return res.json({ answer: greetingMessage });
-    }
-
-    const messages = [
-      ...getSystemPrompts(resumeText),
-      {
-        role: "user",
-        content: question
-      }
-    ];
-
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const question = req.body.question.trim().toLowerCase();
+      const isGreeting = ['hi', 'hello', 'hola', 'howdy', 'hey'].some(greet => question.startsWith(greet));
+
+      if (isGreeting) {
+        const greetingMessage = greetings[Math.floor(Math.random() * greetings.length)];
+        return res.json({ answer: greetingMessage });
+      }
+
+      const messages = [
+        ...getSystemPrompts(resumeText),
+        {
+          role: "user",
+          content: question
+        }
+      ];
+
       const response = await axios.post('https://api.x.ai/v1/chat/completions', {
         messages,
         model: "grok-beta",
@@ -108,39 +124,62 @@ app.post('/api/chat',
       });
 
       const answer = response.data.choices[0].message.content;
-
-      res.json({ 
-        answer
-      });
+      res.json({ answer });
+      
     } catch (error) {
-      console.error('Error generating response:', error.response ? error.response.data : error.message);
+      console.error('Error in /api/chat:', error.response ? error.response.data : error.message);
       let errorMessage = 'An unexpected error occurred. Please try again later.';
+      
       if (error.response) {
-        if (error.response.status === 401) {
-          errorMessage = 'Invalid API key. Please check your configuration.';
-        } else if (error.response.status === 429) {
-          errorMessage = 'Too many requests. Please try again later.';
-        } else if (error.response.status === 500) {
-          errorMessage = 'Server error. Please try again later.';
+        switch (error.response.status) {
+          case 401:
+            errorMessage = 'Invalid API key. Please check your configuration.';
+            break;
+          case 429:
+            errorMessage = 'Too many requests. Please try again later.';
+            break;
+          case 500:
+            errorMessage = 'Server error. Please try again later.';
+            break;
         }
       }
+      
       res.status(500).json({ error: errorMessage });
     }
   }
 );
 
-app.use((err,res) => {
-  console.error(err.stack);
+// Correctly formatted error handler
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err.stack);
   if (!res.headersSent) {
     res.status(500).json({ error: 'Something went wrong! Please try again later.' });
   }
 });
 
 // Start the Server
-const PORT = parseInt(process.env.PORT, 10) || 5003;
+const PORT = process.env.PORT || 5003;
+console.log(`Starting server...`);
 console.log(`Environment PORT: ${process.env.PORT}`);
-app.listen(PORT, () => {
+console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
+});
+
+// Handle server shutdown gracefully
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit the process, just log the error
 });
 
 module.exports = app;
