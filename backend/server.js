@@ -5,7 +5,6 @@ const axios = require('axios');
 const fs = require('fs');
 const pdf = require('pdf-parse');
 const rateLimit = require('express-rate-limit');
-const session = require('express-session');
 const { body, validationResult } = require('express-validator');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
@@ -38,17 +37,6 @@ const chatLimiter = rateLimit({
 
 app.use(bodyParser.json());
 const XAI_API_KEY = process.env.XAI_API_KEY;
-
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax'
-  }
-}));
 
 let resumeText = '';
 
@@ -90,13 +78,6 @@ app.post('/api/chat',
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const session = req.session;
-    const isNewSession = !session.history;
-
-    if (isNewSession) {
-      session.history = [];
-    }
-
     const question = req.body.question.trim().toLowerCase();
     const isGreeting = ['hi', 'hello', 'hola', 'howdy', 'hey'].some(greet => question.startsWith(greet));
 
@@ -107,7 +88,6 @@ app.post('/api/chat',
 
     const messages = [
       ...getSystemPrompts(resumeText),
-      ...session.history,
       {
         role: "user",
         content: question
@@ -128,15 +108,6 @@ app.post('/api/chat',
       });
 
       const answer = response.data.choices[0].message.content;
-      
-      session.history.push(
-        { role: "user", content: question },
-        { role: "assistant", content: answer }
-      );
-
-      if (session.history.length > 10) {
-        session.history = session.history.slice(-10);
-      }
 
       res.json({ 
         answer
