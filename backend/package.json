@@ -17,5 +17,8 @@
     "express-validator": "^7.2.0",
     "helmet": "^8.0.0",
     "pdf-parse": "^1.1.1"
-  }
+  },
+  "scripts": {
+  "start": "node server.js"
+}
 }
