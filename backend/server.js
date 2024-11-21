@@ -85,6 +85,7 @@ function getSystemPrompts(resumeText) {
 
 const greetings = require('./config/greetings.json').greetings;
 const contacts = require('./config/contacts.json').contacts;
+const farewells = require('./config/farewells.json').farewells;
 
 app.post('/api/chat', 
   chatLimiter,
@@ -97,12 +98,18 @@ app.post('/api/chat',
       }
 
       const question = req.body.question.trim().toLowerCase();
-      const isGreeting = ['hi', 'hello', 'hola', 'howdy', 'hey'].some(greet => question.startsWith(greet));
+      const isGreeting = ["hello", "hey", "hi there", "greetings", "howdy", "salutations", "what's up", "yo", "hiya", "good day", "how's it going", "hi"].some(greet => question.startsWith(greet));
+      const isFarewell = ["goodbye", "bye", "see you later", "later", "cya", "adios", "farewell", "peace out", "take care", "have a good one"].some(farewell => question.startsWith(farewell));
       const isContact = ['contact', 'email', 'phone', 'reach', 'linkedin', 'github', 'twitter', 'social'].some(contact => question.includes(contact));
 
       if (isGreeting) {
         const greetingMessage = greetings[Math.floor(Math.random() * greetings.length)];
         return res.json({ answer: greetingMessage });
+      }
+
+      if (isFarewell) {
+        const farewellMessage = farewells[Math.floor(Math.random() * farewells.length)];
+        return res.json({ answer: farewellMessage });
       }
 
       if (isContact) {
@@ -186,7 +193,6 @@ process.on('SIGTERM', () => {
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit the process, just log the error
 });
 
 module.exports = app;
