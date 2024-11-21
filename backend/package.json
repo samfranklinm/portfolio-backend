@@ -1,0 +1,21 @@
+{
+  "name": "samfranklin.dev-backend",
+  "version": "0.2.0",
+  "homepage": "",
+  "description": "Personal website backend",
+  "repository": "",
+  "author": "Sam Franklin <info@samfranklin.dev>",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "express-session": "^1.18.1",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "pdf-parse": "^1.1.1"
+  }
+}
