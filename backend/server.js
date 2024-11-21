@@ -39,8 +39,8 @@ app.use(cors({
 app.use(helmet());
 
 const chatLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 20,
+  windowMs: 15 * 60 * 1000,
+  max: 50,
   message: 'Too many requests from this IP, please try again after 10 minutes'
 });
 
