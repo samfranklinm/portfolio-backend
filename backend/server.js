@@ -84,6 +84,7 @@ function getSystemPrompts(resumeText) {
 }
 
 const greetings = require('./config/greetings.json').greetings;
+const contacts = require('./config/contacts.json').contacts;
 
 app.post('/api/chat', 
   chatLimiter,
@@ -97,10 +98,16 @@ app.post('/api/chat',
 
       const question = req.body.question.trim().toLowerCase();
       const isGreeting = ['hi', 'hello', 'hola', 'howdy', 'hey'].some(greet => question.startsWith(greet));
+      const isContact = ['contact', 'email', 'phone', 'reach', 'linkedin', 'github', 'twitter', 'social'].some(contact => question.includes(contact));
 
       if (isGreeting) {
         const greetingMessage = greetings[Math.floor(Math.random() * greetings.length)];
         return res.json({ answer: greetingMessage });
+      }
+
+      if (isContact) {
+        const contactMessage = contacts[Math.floor(Math.random() * contacts.length)];
+        return res.json({ answer: contactMessage });
       }
 
       const messages = [
