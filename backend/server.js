@@ -127,8 +127,8 @@ app.post('/api/chat',
 
       const response = await axios.post('https://api.x.ai/v1/chat/completions', {
         messages,
-        model: "grok-beta",
-        temperature: 0.7,
+        model: "grok-3-mini-beta",
+        temperature: 0.2,
         stream: false
       }, {
         headers: {
