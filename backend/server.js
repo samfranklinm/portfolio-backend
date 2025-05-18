@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -125,19 +126,27 @@ app.post('/api/chat',
         }
       ];
 
-      const response = await axios.post('https://api.x.ai/v1/chat/completions', {
-        messages,
-        model: "grok-3-mini-beta",
-        temperature: 0.2,
-        stream: false
-      }, {
-        headers: {
-          'Authorization': `Bearer ${XAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      });
+    const client = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: "https://api.x.ai/v1",
+    });
 
-      const answer = response.data.choices[0].message.content;
+    const completion = await client.chat.completions.create({
+      model: "grok-3-mini-fast-beta",
+      temperature: 0.8,
+      messages: [
+        {
+          role: "system",
+          content: "You are Grok, a chatbot inspired by the Hitchhiker's Guide to the Galaxy."
+        },
+        {
+          role: "user",
+          content: "What is the meaning of life, the universe, and everything?"
+        },
+      ],
+    });
+
+      const answer = completion.choices[0].message;
       res.json({ answer });
       
     } catch (error) {
