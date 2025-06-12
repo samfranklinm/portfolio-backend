@@ -9,7 +9,8 @@ const helmet = require('helmet');
 const dotenv = require('dotenv');
 dotenv.config();
 
-const OpenAI = require('openai').default; // Access default export for CommonJS :contentReference[oaicite:9]{index=9}
+const OpenAI = require('openai').default; // Access default export for CommonJS
+const Anthropic = require('@anthropic-ai/sdk'); // Import Anthropic SDK
 
 const app = express();
 app.set('trust proxy', 1);
@@ -47,6 +48,7 @@ const chatLimiter = rateLimit({
 app.use(chatLimiter);
 
 const XAI_API_KEY = process.env.XAI_API_KEY;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 let resumeText = '';
 
 const loadResume = async () => {
@@ -115,40 +117,30 @@ app.post(
         return res.json({ answer: contactMessage });
       }
 
-      const messages = [
-        {
-          role: 'system',
-          content: `${process.env.BASE_PERSONA}`
-        },
-        {
-          role: 'system',
-          content: `Resume: ${resumeText}`
-        },
-        {
-          role: 'user',
-          content: questionRaw
-        }
-      ];
-
-      const client = new OpenAI({
-        apiKey: XAI_API_KEY,
-        baseURL: 'https://api.x.ai/v1'
+      // Initialize Anthropic client
+      const anthropic = new Anthropic({
+        apiKey: ANTHROPIC_API_KEY, // Using environment variable
       });
-      const completion = await client.chat.completions.create({
-        model: 'grok-3-mini-fast-beta',
-        temperature: 0.8,
-        messages
+      
+      // Create messages for Claude
+      const completion = await anthropic.messages.create({
+        model: process.env.MODEL, // Using Claude 3 Sonnet as it's the most reliable available model
+        max_tokens: 2048,
+        system: `${process.env.BASE_PERSONA}\n\nResume: ${resumeText}`,
+        messages: [
+          {
+            role: 'user',
+            content: questionRaw
+          }
+        ]
       });
 
-      if (
-        !completion.choices ||
-        !completion.choices[0] ||
-        !completion.choices[0].message ||
-        typeof completion.choices[0].message.content !== 'string'
-      ) {
-        throw new Error('Unexpected response structure from X.AI Grok API');
+      if (!completion || !completion.content || completion.content.length === 0) {
+        throw new Error('Unexpected response structure from Anthropic API');
       }
-      const answer = completion.choices[0].message.content;
+      
+      // Extract the text from the first content block
+      const answer = completion.content[0].text;
 
       return res.json({ answer });
     } catch (error) {
