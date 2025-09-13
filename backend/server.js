@@ -167,6 +167,15 @@ app.post(
   }
 );
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    service: 'portfolio-backend',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Global error handler :contentReference[oaicite:21]{index=21}
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err.stack);
