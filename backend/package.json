@@ -20,6 +20,9 @@
     "openai": "^4.100.0",
     "pdf-parse": "^1.1.1"
   },
+  "overrides": {
+    "node-fetch": "2.6.7"
+  },
   "scripts": {
     "start": "node server.js"
   }
