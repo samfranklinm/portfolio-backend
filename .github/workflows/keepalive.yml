@@ -13,7 +13,7 @@ jobs:
       - name: Ping app with retry
         run: |
           for i in {1..3}; do
-            if curl -f --max-time 30 https://samfranklin.dev/health; then
+            if curl -f --max-time 30 https://portfolio-backend-c9ru.onrender.com/api/health; then
               echo "Ping successful on attempt $i"
               exit 0
             else
