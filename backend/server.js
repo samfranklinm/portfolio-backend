@@ -46,8 +46,6 @@ const chatLimiter = rateLimit({
 }); // Rate limit per 15 minutes per IP :contentReference[oaicite:11]{index=11}
 
 app.use(chatLimiter);
-
-const XAI_API_KEY = process.env.XAI_API_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 let resumeText = '';
 
