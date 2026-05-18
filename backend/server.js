@@ -4,7 +4,6 @@ const bodyParser = require('body-parser');
 const fs = require('fs');
 const pdf = require('pdf-parse');
 const rateLimit = require('express-rate-limit');
-const { body, validationResult } = require('express-validator');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
 dotenv.config();
@@ -73,15 +72,13 @@ app.get('/health', (req, res) => {
 
 app.post(
   '/api/chat',
-  body('question').isString().trim().escape(), // Sanitize input :contentReference[oaicite:13]{index=13}
   async (req, res) => {
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
+      const questionRaw = req.body?.question;
+      if (typeof questionRaw !== 'string' || questionRaw.trim().length === 0) {
+        return res.status(400).json({ errors: [{ msg: 'question must be a non-empty string' }] });
       }
 
-      const questionRaw = req.body.question;
       const question = questionRaw.trim().toLowerCase();
       const isGreeting = [
         'hello', 'hey', 'hi there', 'greetings', 'howdy',
