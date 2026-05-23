@@ -7,20 +7,14 @@
   "author": "Sam Franklin <info@samfranklin.dev>",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.54.0",
-    "axios": "^1.16.1",
+    "@google/generative-ai": "^0.24.1",
     "body-parser": "^1.20.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "express-rate-limit": "^7.4.1",
-    "express-session": "^1.18.1",
     "helmet": "^8.0.0",
-    "openai": "^4.100.0",
-    "pdf-parse": "^1.1.1"
-  },
-  "overrides": {
-    "node-fetch": "2.6.7"
+    "pdfjs-dist": "^5.7.284"
   },
   "scripts": {
     "start": "node server.js"

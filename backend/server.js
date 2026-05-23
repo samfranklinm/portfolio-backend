@@ -1,169 +1,122 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const fs = require('fs');
-const pdf = require('pdf-parse');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { getDocument, GlobalWorkerOptions } = require('pdfjs-dist/legacy/build/pdf.mjs');
+GlobalWorkerOptions.workerSrc = '';
+
 dotenv.config();
 
-const OpenAI = require('openai').default; // Access default export for CommonJS
-const Anthropic = require('@anthropic-ai/sdk'); // Import Anthropic SDK
+const REQUIRED_ENV = ['GEMINI_API_KEY', 'BASE_PERSONA', 'RESUME_URL'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`[FATAL] Missing required env vars: ${missing.join(', ')}`);
+  process.exit(1);
+}
 
-const app = express();
-app.set('trust proxy', 1);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5004',
-  'http://localhost:5002',
-  'http://localhost:5003',
-  'https://samfranklin.dev',
-  process.env.RENDER_EXTERNAL_URL
-].filter(Boolean); // Filter out undefined :contentReference[oaicite:10]{index=10}
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  methods: ['POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-
-app.use(helmet());
-app.use(bodyParser.json());
-
-const chatLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
-  message: 'Too many requests from this IP, please try again after 10 minutes'
-}); // Rate limit per 15 minutes per IP :contentReference[oaicite:11]{index=11}
-
-app.use(chatLimiter);
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 let resumeText = '';
+const RESUME_TTL_MS = 20 * 60 * 1000; // 20 minutes
 
-const loadResume = async () => {
-  try {
-    const dataBuffer = fs.readFileSync('./resume.pdf');
-    const data = await pdf(dataBuffer);
-    resumeText = data.text;
-    console.log('Resume loaded successfully.');
-  } catch (error) {
-    console.error('Error loading resume:', error);
-    resumeText = 'Resume text temporarily unavailable.';
-  }
+const toGdriveDownload = (url) => {
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+  const idParam = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (idParam) return `https://drive.google.com/uc?export=download&id=${idParam[1]}`;
+  return url;
 };
 
-loadResume(); // Preload resume on startup :contentReference[oaicite:12]{index=12}
+const extractPdfText = async (arrayBuffer) => {
+  const data = { data: new Uint8Array(arrayBuffer) };
+  const doc = await getDocument({ ...data, useWorkerFetch: false, isEvalSupported: false }).promise;
+  const pages = await Promise.all(
+    Array.from({ length: doc.numPages }, (_, i) =>
+      doc.getPage(i + 1).then(p => p.getTextContent()).then(c => c.items.map(x => x.str).join(' '))
+    )
+  );
+  return pages.join('\n').trim();
+};
+
+const fetchResume = async () => {
+  const rawUrl = process.env.RESUME_URL;
+  if (!rawUrl) throw new Error('RESUME_URL env var is not set.');
+
+  const isGdrive = rawUrl.includes('drive.google.com');
+  const fetchUrl = isGdrive ? toGdriveDownload(rawUrl) : rawUrl;
+
+  const res = await fetch(fetchUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status} from ${fetchUrl}`);
+
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/pdf') || isGdrive || rawUrl.toLowerCase().endsWith('.pdf')) {
+    const buf = await res.arrayBuffer();
+    return extractPdfText(buf);
+  }
+
+  const data = await res.json();
+  return JSON.stringify(data, null, 2);
+};
+
+const loadResume = async () => {
+  resumeText = await fetchResume();
+  console.log(`[resume] Loaded (${resumeText.length} chars). Next refresh in ${RESUME_TTL_MS / 60000} min.`);
+};
+
+const scheduleResumeRefresh = () => {
+  setInterval(async () => {
+    try {
+      resumeText = await fetchResume();
+      console.log(`[resume] Refreshed (${resumeText.length} chars).`);
+    } catch (err) {
+      console.warn(`[resume] Refresh failed: ${err.message}. Keeping previous content.`);
+    }
+  }, RESUME_TTL_MS);
+};
 
 const greetings = require('./config/greetings.json').greetings;
 const contacts = require('./config/contacts.json').contacts;
 const farewells = require('./config/farewells.json').farewells;
 
+const app = express();
+app.set('trust proxy', 1);
+
+
+const corsOptions = {
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+  optionsSuccessStatus: 204,
+};
+
+app.options(/.*/, cors(corsOptions));
+app.use(cors(corsOptions));
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
+app.use(bodyParser.json());
+
+const chatLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' }
+});
+
+const INJECTION_PATTERNS = [
+  /ignore (previous|all|above|prior)/i,
+  /you are now/i,
+  /system prompt/i,
+];
+
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-app.post(
-  '/api/chat',
-  async (req, res) => {
-    try {
-      const questionRaw = req.body?.question;
-      if (typeof questionRaw !== 'string' || questionRaw.trim().length === 0) {
-        return res.status(400).json({ errors: [{ msg: 'question must be a non-empty string' }] });
-      }
-
-      const question = questionRaw.trim().toLowerCase();
-      const isGreeting = [
-        'hello', 'hey', 'hi there', 'greetings', 'howdy',
-        'salutations', "what's up", 'yo', 'hiya',
-        'good day', "how's it going", 'hi'
-      ].some(greet => question.startsWith(greet)); // Detect friendly greetings :contentReference[oaicite:14]{index=14}
-
-      const isFarewell = [
-        'goodbye', 'bye', 'see you later', 'later', 'cya',
-        'adios', 'farewell', 'peace out', 'take care',
-        'have a good one'
-      ].some(farewell => question.startsWith(farewell)); // Detect farewells :contentReference[oaicite:15]{index=15}
-
-      const isContact = [
-        'contact', 'email', 'phone', 'reach', 'linkedin',
-        'github', 'twitter', 'social'
-      ].some(contact => question.includes(contact)); // Detect contact requests :contentReference[oaicite:16]{index=16}
-
-      if (isGreeting) {
-        const greetingMessage = greetings[Math.floor(Math.random() * greetings.length)];
-        return res.json({ answer: greetingMessage });
-      }
-
-      if (isFarewell) {
-        const farewellMessage = farewells[Math.floor(Math.random() * farewells.length)];
-        return res.json({ answer: farewellMessage });
-      }
-
-      if (isContact) {
-        const contactMessage = contacts[Math.floor(Math.random() * contacts.length)];
-        return res.json({ answer: contactMessage });
-      }
-
-      // Initialize Anthropic client
-      const anthropic = new Anthropic({
-        apiKey: ANTHROPIC_API_KEY, // Using environment variable
-      });
-      
-      // Create messages for Claude
-      const completion = await anthropic.messages.create({
-        model: process.env.MODEL, // Using Claude 3 Sonnet as it's the most reliable available model
-        max_tokens: 2048,
-        system: `${process.env.BASE_PERSONA}\n\nResume: ${resumeText}`,
-        messages: [
-          {
-            role: 'user',
-            content: questionRaw
-          }
-        ]
-      });
-
-      if (!completion || !completion.content || completion.content.length === 0) {
-        throw new Error('Unexpected response structure from Anthropic API');
-      }
-      
-      // Extract the text from the first content block
-      const answer = completion.content[0].text;
-
-      return res.json({ answer });
-    } catch (error) {
-      console.error(
-        'Error in /api/chat:',
-        error.response ? error.response.data : error.message
-      );
-      let errorMessage = 'An unexpected error occurred. Please try again later.';
-      if (error.response) {
-        switch (error.response.status) {
-          case 401:
-            errorMessage = 'Invalid API key. Please check your configuration.';
-            break;
-          case 429:
-            errorMessage = 'Too many requests. Please try again later.';
-            break;
-          case 500:
-            errorMessage = 'Server error. Please try again later.';
-            break;
-        }
-      }
-      return res.status(500).json({ error: errorMessage });
-    }
-  }
-);
-
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     status: 'ok',
     service: 'portfolio-backend',
     timestamp: new Date().toISOString(),
@@ -171,34 +124,100 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Global error handler :contentReference[oaicite:21]{index=21}
+app.post('/api/chat', chatLimiter, async (req, res) => {
+  try {
+    const questionRaw = req.body?.question;
+
+    if (typeof questionRaw !== 'string' || questionRaw.trim().length === 0) {
+      return res.status(400).json({ error: 'question must be a non-empty string' });
+    }
+
+    if (questionRaw.trim().length > 2000) {
+      return res.status(400).json({ error: 'Message too long. Please keep questions under 2000 characters.' });
+    }
+
+    if (INJECTION_PATTERNS.some(p => p.test(questionRaw))) {
+      return res.status(400).json({ error: 'Invalid input.' });
+    }
+
+    const question = questionRaw.trim().toLowerCase();
+
+    const isGreeting = [
+      'hello', 'hey', 'hi there', 'greetings', 'howdy',
+      'salutations', "what's up", 'yo', 'hiya',
+      'good day', "how's it going", 'hi'
+    ].some(greet => question.startsWith(greet));
+
+    const isFarewell = [
+      'goodbye', 'bye', 'see you later', 'later', 'cya',
+      'adios', 'farewell', 'peace out', 'take care',
+      'have a good one'
+    ].some(farewell => question.startsWith(farewell));
+
+    const isContact = [
+      'contact', 'email', 'phone', 'reach', 'linkedin',
+      'github', 'twitter', 'social'
+    ].some(contact => question.includes(contact));
+
+    if (isGreeting) {
+      return res.json({ answer: greetings[Math.floor(Math.random() * greetings.length)] });
+    }
+
+    if (isFarewell) {
+      return res.json({ answer: farewells[Math.floor(Math.random() * farewells.length)] });
+    }
+
+    if (isContact) {
+      return res.json({ answer: contacts[Math.floor(Math.random() * contacts.length)] });
+    }
+
+    const model = genAI.getGenerativeModel({
+      model: process.env.MODEL || 'gemini-2.5-flash',
+      systemInstruction: `${process.env.BASE_PERSONA}\n\nResume:\n${resumeText}`,
+    });
+
+    const result = await model.generateContent(questionRaw.trim());
+    const answer = result.response.text();
+    if (!answer) {
+      throw new Error('Empty response from AI service');
+    }
+
+    return res.json({ answer });
+  } catch (error) {
+    console.error('[/api/chat]', error.status || 'ERR', error.message);
+
+    if (error.status === 429) {
+      return res.status(429).json({ error: 'Rate limit reached. Please try again shortly.' });
+    }
+    if (error.status >= 500) {
+      return res.status(502).json({ error: 'AI service temporarily unavailable.' });
+    }
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' });
+  }
+});
+
 app.use((err, req, res, next) => {
-  console.error('Global error handler:', err.stack);
+  console.error('[global]', err.message);
   if (!res.headersSent) {
-    res.status(500).json({ error: 'Something went wrong! Please try again later.' });
+    res.status(500).json({ error: 'Something went wrong. Please try again later.' });
   }
 });
 
 const PORT = process.env.PORT || 5003;
-console.log(`Starting server...`);
-console.log(`Environment PORT: ${process.env.PORT}`);
-console.log(`NODE_ENV: ${process.env.NODE_ENV}`);
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`CORS allowed origins: ${allowedOrigins.join(', ')}`);
-});
-
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+loadResume().then(() => {
+  scheduleResumeRefresh();
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
   });
+  process.on('SIGTERM', () => server.close(() => process.exit(0)));
+}).catch((err) => {
+  console.error('[FATAL] Failed to load resume:', err.message);
+  process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
 });
 
 module.exports = app;
