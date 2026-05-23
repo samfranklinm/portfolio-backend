@@ -1,6 +1,9 @@
-node_modules/
+__pycache__/
+*.py[cod]
 .env
 env.production
 env.local
+.venv/
+venv/
 *.pdf
 *.log
