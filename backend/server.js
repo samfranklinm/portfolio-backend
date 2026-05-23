@@ -6,7 +6,8 @@ const helmet = require('helmet');
 const dotenv = require('dotenv');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { getDocument, GlobalWorkerOptions } = require('pdfjs-dist/legacy/build/pdf.mjs');
-GlobalWorkerOptions.workerSrc = '';
+const _workerPath = require.resolve('pdfjs-dist/build/pdf.worker.mjs');
+GlobalWorkerOptions.workerSrc = `file:///${_workerPath.replace(/\\/g, '/')}`;
 
 dotenv.config();
 
